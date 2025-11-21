@@ -269,6 +269,12 @@ void MetalAccelerator::runStep(std::vector<unsigned char> &points,
   [commandBuffer commit];
   [commandBuffer waitUntilCompleted];
 
+  if (commandBuffer.status == MTLCommandBufferStatusError) {
+    std::cerr << "Metal Execution Error: " <<
+        [[commandBuffer.error localizedDescription] UTF8String] << std::endl;
+    return;
+  }
+
   // Copy back results (interleave X/Y)
   unsigned char *ptrX = (unsigned char *)[bufferX contents];
   unsigned char *ptrY = (unsigned char *)[bufferY contents];

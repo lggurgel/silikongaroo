@@ -111,6 +111,37 @@ double Kangaroo::getDuration() const {
   return elapsed.count();
 }
 
+double Kangaroo::getOpsPerSecond() const {
+  double duration = getDuration();
+  if (duration <= 0)
+    return 0;
+  return (double)totalJumps / duration;
+}
+
+double Kangaroo::getEstimatedSecondsRemaining() const {
+  double rate = getOpsPerSecond();
+  if (rate <= 0)
+    return -1.0;  // Unknown
+
+  // Expected steps = sqrt(range)
+  // But this is for ONE kangaroo.
+  // For N kangaroos, the total work is still roughly sqrt(range) * constant?
+  // No, Pollard's Lambda expected complexity is ~ 2 * sqrt(N) operations total
+  // across all processors. Let's use the standard approximation: 2 *
+  // sqrt(rangeSize)
+
+  mpz_class sqrtN;
+  mpz_sqrt(sqrtN.get_mpz_t(), rangeSize.get_mpz_t());
+  double expectedTotalOps = mpz_get_d(sqrtN.get_mpz_t()) * 2.0;
+
+  // Remaining ops
+  double remainingOps = expectedTotalOps - (double)totalJumps;
+  if (remainingOps < 0)
+    remainingOps = 0;
+
+  return remainingOps / rate;
+}
+
 void Kangaroo::processCollision(const std::string& pointHex,
                                 const mpz_class& dist, bool isTame) {
   if (distinguishedPoints.find(pointHex) == distinguishedPoints.end()) {
@@ -167,18 +198,73 @@ void Kangaroo::run() {
 
   // Metal GPU Check
   if (useGPU) {
-    // Adjust dpBits for GPU to prevent buffer overflow and ensure efficiency
-    // Target: ~1000 DPs per launch (batch 65536 * 64 steps = 4M steps)
-    // 4M / 2^12 = 1024. Buffer is 4096.
-    // So dpBits >= 12 is safe.
-    if (dpBits < 12) {
-      dpBits = 12;
-      std::cout << "Adjusting dpBits to " << dpBits << " for GPU optimization."
-                << std::endl;
+    // Dynamic Tuning for GPU
+
+    // 1. Check if we can increase dpBits for performance
+    // If range is large, we WANT high dpBits to reduce memory contention and
+    // allow more steps per launch. But we must not make dpBits so high that we
+    // never find the key (Pollard's Lambda constraint). Rule of thumb: expected
+    // total jumps ~ 2 * sqrt(range). We need to find enough DPs to detect
+    // collision. If we have 2^16 jumps between DPs, and total jumps is 2^30, we
+    // find 2^14 DPs. Plenty. If total jumps is 2^10 (small range), and jumps
+    // between DPs is 2^16, we find 0 DPs. Bad.
+
+    mpz_class sqrtN;
+    mpz_sqrt(sqrtN.get_mpz_t(), rangeSize.get_mpz_t());
+    double expectedOps = mpz_get_d(sqrtN.get_mpz_t()) * 2.0;
+
+    // If we can afford it, boost dpBits to 16 for GPU efficiency
+    if (expectedOps > (double)(1ULL << 20)) {  // If we expect > 1M ops
+      if (dpBits < 16) {
+        dpBits = 16;
+        std::cout << "Boosting dpBits to 16 for GPU efficiency (Large Range)."
+                  << std::endl;
+      }
     }
+
+    // 2. Safety Check: Ensure (batchSize * steps * probability) < bufferSize
+    // Buffer size is 4096. Let's target 2048 max DPs per launch for safety.
+
+    double prob = 1.0 / (double)(1ULL << dpBits);
+    double maxTotalSteps = 2048.0 / prob;
+
+    // Default High Performance settings
+    int gpuBatchSize = 1024;
+    int stepsPerLaunch = 64;
+
+    // If dpBits is small (small range), maxTotalSteps will be small.
+    // e.g. dpBits=1 -> prob=0.5 -> maxTotalSteps = 4096.
+    // We can't run 65536 * 1024 steps!
+
+    if ((double)gpuBatchSize * stepsPerLaunch > maxTotalSteps) {
+      // We need to reduce batch or steps.
+      // Prefer reducing steps first, then batch.
+
+      // Try reducing steps
+      stepsPerLaunch = (int)(maxTotalSteps / gpuBatchSize);
+      if (stepsPerLaunch < 1) {
+        stepsPerLaunch = 1;
+        // Still too big? Reduce batch.
+        gpuBatchSize = (int)maxTotalSteps;
+        if (gpuBatchSize < 32)
+          gpuBatchSize = 32;  // Min SIMD width
+      }
+
+      std::cout << "Tuning GPU parameters for small range/low dpBits:"
+                << std::endl;
+      std::cout << "  Batch Size: " << gpuBatchSize << std::endl;
+      std::cout << "  Steps: " << stepsPerLaunch << std::endl;
+    }
+
+    std::cout << "GPU Parameters:" << std::endl;
+    std::cout << "  Batch Size: " << gpuBatchSize << std::endl;
+    std::cout << "  Steps: " << stepsPerLaunch << std::endl;
+    std::cout << "  DP Bits: " << dpBits << std::endl;
 
     std::cout << "Initializing Metal Accelerator..." << std::endl;
     metalAccel.init(jumpTable);
+
+    // ... Verification code ...
 
     // --- Verification Step ---
     std::cout << "Verifying GPU Math Integrity..." << std::endl;
@@ -284,10 +370,6 @@ void Kangaroo::run() {
     }
 
     // GPU Solver Loop
-    // Tuned for M1: 64k batch, 64 steps.
-    int gpuBatchSize = 65536;  // 2^16
-    int stepsPerLaunch = 64;
-
     std::cout << "Generating " << gpuBatchSize << " kangaroos for GPU..."
               << std::endl;
 
