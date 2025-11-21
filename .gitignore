@@ -1,0 +1,78 @@
+# Build directories
+build/
+cmake-build-*/
+
+# Compiled binaries
+silikangaroo
+gen_key
+*.out
+*.app
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+*.lo
+*.slo
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.dylib
+*.so
+*.so.*
+*.dll
+
+# Metal compiled
+*.air
+*.metallib
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# IDE specific
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Xcode
+*.xcodeproj
+*.xcworkspace
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+DerivedData/
+
+# Test output
+tests/output/
+*.log
+
+# Package manager
+.conan/
+vcpkg_installed/
+
+# Temporary files
+*.tmp
+*.bak
+*.cache
+

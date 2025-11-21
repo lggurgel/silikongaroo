@@ -1,0 +1,62 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-macos:
+    name: Build on macOS (Apple Silicon)
+    runs-on: macos-14  # M1 runner
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        brew install libomp gmp cmake
+
+    - name: Configure CMake
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Release ..
+
+    - name: Build
+      run: |
+        cd build
+        make -j$(sysctl -n hw.ncpu)
+
+    - name: Verify executables
+      run: |
+        ls -lh build/silikangaroo
+        ls -lh build/gen_key
+        ls -lh build/default.metallib
+
+    - name: Test gen_key
+      run: |
+        cd build
+        ./gen_key d2c55 | grep "033c4a45cbd643ff97d77f41ea37e843648d50fd894b864b0d52febc62f6454f7c"
+
+    - name: Quick smoke test (Puzzle 20)
+      run: |
+        cd build
+        timeout 60s ./silikangaroo \
+          033c4a45cbd643ff97d77f41ea37e843648d50fd894b864b0d52febc62f6454f7c \
+          0x80000 0xFFFFF 8 --gpu || true
+      continue-on-error: true
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: silikangaroo-macos-arm64
+        path: |
+          build/silikangaroo
+          build/gen_key
+          build/default.metallib
+
