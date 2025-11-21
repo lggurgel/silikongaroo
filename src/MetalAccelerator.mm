@@ -3,6 +3,7 @@
 #include "Utils.hpp"
 #include <cstring> // for memcpy
 #include <iostream>
+#include <mach-o/dyld.h>
 #include <vector>
 
 // Helper to copy 32-byte mpz to buffer
@@ -43,10 +44,31 @@ MetalAccelerator::MetalAccelerator() {
   NSString *cwd = [[NSFileManager defaultManager] currentDirectoryPath];
   NSString *fullPath = [cwd stringByAppendingPathComponent:libPath];
 
-  if (![[NSFileManager defaultManager] fileExistsAtPath:fullPath]) {
-    // Try subdirectory 'build' (common dev pattern)
-    fullPath = [[cwd stringByAppendingPathComponent:@"build"]
+  bool found = [[NSFileManager defaultManager] fileExistsAtPath:fullPath];
+
+  if (!found) {
+    // Try subdirectory 'build'
+    NSString *buildPath = [[cwd stringByAppendingPathComponent:@"build"]
         stringByAppendingPathComponent:libPath];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:buildPath]) {
+      fullPath = buildPath;
+      found = true;
+    }
+  }
+
+  if (!found) {
+    // Try directory where executable is located
+    char path[4096];
+    uint32_t size = sizeof(path);
+    if (_NSGetExecutablePath(path, &size) == 0) {
+      NSString *execPath = [NSString stringWithUTF8String:path];
+      NSString *execDir = [execPath stringByDeletingLastPathComponent];
+      NSString *execLibPath = [execDir stringByAppendingPathComponent:libPath];
+      if ([[NSFileManager defaultManager] fileExistsAtPath:execLibPath]) {
+        fullPath = execLibPath;
+        found = true;
+      }
+    }
   }
 
   NSURL *url = [NSURL fileURLWithPath:fullPath];
@@ -89,8 +111,7 @@ MetalAccelerator::~MetalAccelerator() {
   // ARC handles release
 }
 
-void MetalAccelerator::init(const std::vector<Jump> &jumpTable,
-                            const std::string &targetHex) {
+void MetalAccelerator::init(const std::vector<Jump> &jumpTable) {
   // Upload jump table to GPU Buffers
   // Structure of Arrays: X[], Y[], Dist[]
 
