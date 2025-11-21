@@ -50,6 +50,33 @@ class Kangaroo {
     useGPU = use;
   }
 
+  void setDpBits(int bits) {
+    dpBits = bits;
+    manualDpBits = true;
+  }
+
+  void setGpuParams(int batch, int steps) {
+    gpuBatchSize = batch;
+    stepsPerLaunch = steps;
+    manualGpuParams = true;
+  }
+
+  void setCheckpointFile(const std::string& file) {
+    checkpointFile = file;
+  }
+
+  void saveCheckpoint(const std::string& file);
+  void loadCheckpoint(const std::string& file);
+  void requestCheckpoint(const std::string& file);
+
+  void stop() {
+    shouldStop = true;
+  }
+
+  bool isStopped() const {
+    return shouldStop;
+  }
+
  private:
   mpz_class startRange;
   mpz_class endRange;
@@ -78,10 +105,6 @@ class Kangaroo {
   std::atomic<uint64_t> totalJumps{0};
   std::chrono::time_point<std::chrono::high_resolution_clock> startTime;
 
-  // Worker function
-  void worker(int id, bool isTame, mpz_class startDist,
-              secp256k1_pubkey startPoint);
-
   // DP condition: e.g. last N bits are zero
   int dpBits;
   bool isDistinguished(const secp256k1_pubkey& point);
@@ -89,4 +112,19 @@ class Kangaroo {
   // Helper to process collision
   void processCollision(const std::string& pointHex, const mpz_class& dist,
                         bool isTame);
+
+  // Optimization & Checkpoint params
+  int gpuBatchSize = 1024;
+  int stepsPerLaunch = 64;
+  std::string checkpointFile;
+  bool manualDpBits = false;
+  bool manualGpuParams = false;
+  std::atomic<bool> checkpointRequested{false};
+  std::mutex checkpointMutex;
+
+  // Saved state for resume
+  bool loadedFromCheckpoint = false;
+  double loadedDuration = 0.0;
+  std::vector<unsigned char> savedGpuPoints;
+  std::vector<unsigned char> savedGpuDists;
 };
