@@ -1,18 +1,22 @@
 #include "Kangaroo.hpp"
-#include "Utils.hpp"
+
+#include <omp.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <iostream>
-#include <omp.h>
 #include <random>
 #include <thread>
 
-Kangaroo::Kangaroo(const mpz_class &startRange, const mpz_class &endRange,
-                   const std::string &targetPubKeyHex, int numThreads)
-    : startRange(startRange), endRange(endRange), targetHex(targetPubKeyHex),
-      numThreads(numThreads) {
+#include "Utils.hpp"
 
+Kangaroo::Kangaroo(const mpz_class& startRange, const mpz_class& endRange,
+                   const std::string& targetPubKeyHex, int numThreads)
+    : startRange(startRange),
+      endRange(endRange),
+      targetHex(targetPubKeyHex),
+      numThreads(numThreads) {
   rangeSize = endRange - startRange;
   if (this->numThreads <= 0) {
     this->numThreads = std::thread::hardware_concurrency();
@@ -37,7 +41,7 @@ Kangaroo::Kangaroo(const mpz_class &startRange, const mpz_class &endRange,
   if (dpBits < 1)
     dpBits = 1;
   if (dpBits > 24)
-    dpBits = 24; // Cap it
+    dpBits = 24;  // Cap it
 
   std::cout << "Range size: " << rangeSize.get_str() << std::endl;
   std::cout << "Sqrt(N): " << sqrtNd << std::endl;
@@ -47,13 +51,15 @@ Kangaroo::Kangaroo(const mpz_class &startRange, const mpz_class &endRange,
   initJumpTable();
 }
 
-Kangaroo::~Kangaroo() { shouldStop = true; }
+Kangaroo::~Kangaroo() {
+  shouldStop = true;
+}
 
 void Kangaroo::initJumpTable() {
   mpz_class sqrtN;
   mpz_sqrt(sqrtN.get_mpz_t(), rangeSize.get_mpz_t());
 
-  int tableSize = 32; // Power of 2
+  int tableSize = 32;  // Power of 2
   jumpTable.resize(tableSize);
 
   gmp_randclass rr(gmp_randinit_default);
@@ -79,7 +85,7 @@ void Kangaroo::initJumpTable() {
   }
 }
 
-bool Kangaroo::isDistinguished(const secp256k1_pubkey &point) {
+bool Kangaroo::isDistinguished(const secp256k1_pubkey& point) {
   std::vector<unsigned char> bytes = ecc.serializePublicKey(point, true);
 
   int bitsToCheck = dpBits;
@@ -105,14 +111,14 @@ double Kangaroo::getDuration() const {
   return elapsed.count();
 }
 
-void Kangaroo::processCollision(const std::string &pointHex,
-                                const mpz_class &dist, bool isTame) {
+void Kangaroo::processCollision(const std::string& pointHex,
+                                const mpz_class& dist, bool isTame) {
   if (distinguishedPoints.find(pointHex) == distinguishedPoints.end()) {
     distinguishedPoints[pointHex] = {dist, isTame};
     return;
   }
 
-  DistinguishedPoint &other = distinguishedPoints[pointHex];
+  DistinguishedPoint& other = distinguishedPoints[pointHex];
   if (other.isTame == isTame) {
     return;
   }
@@ -172,14 +178,14 @@ void Kangaroo::run() {
     }
 
     std::cout << "Initializing Metal Accelerator..." << std::endl;
-    metalAccel.init(jumpTable, targetHex);
+    metalAccel.init(jumpTable);
 
     // --- Verification Step ---
     std::cout << "Verifying GPU Math Integrity..." << std::endl;
     // 1. Create a known point P
     secp256k1_pubkey p_cpu;
     unsigned char scalarOne[32] = {0};
-    scalarOne[31] = 1; // 1
+    scalarOne[31] = 1;  // 1
     ecc.getPubKeyFromPriv(p_cpu, scalarOne);
 
     // 2. Calculate 1 step on CPU
@@ -279,7 +285,7 @@ void Kangaroo::run() {
 
     // GPU Solver Loop
     // Tuned for M1: 64k batch, 64 steps.
-    int gpuBatchSize = 65536; // 2^16
+    int gpuBatchSize = 65536;  // 2^16
     int stepsPerLaunch = 64;
 
     std::cout << "Generating " << gpuBatchSize << " kangaroos for GPU..."
@@ -340,7 +346,7 @@ void Kangaroo::run() {
       totalJumps += (uint64_t)gpuBatchSize * stepsPerLaunch;
 
       // Process found DPs from GPU
-      for (const auto &dp : foundDPs) {
+      for (const auto& dp : foundDPs) {
         // Reconstruct point
         std::vector<unsigned char> pub(65);
         pub[0] = 0x04;
@@ -371,13 +377,13 @@ void Kangaroo::run() {
 
       if (found) {
         shouldStop = true;
-        return; // Done!
+        return;  // Done!
       }
 
       // If not found, loop continues with current kangaroos (they keep
       // walking). This is the correct Pollard's Lambda behavior.
     }
-    return; // GPU finished (found or stopped)
+    return;  // GPU finished (found or stopped)
   }
 
   // cpu_fallback:
@@ -393,20 +399,20 @@ void Kangaroo::run() {
 
     gmp_randclass rr(gmp_randinit_default);
     rr.seed(time(NULL) + id);
-    mpz_class offset = rr.get_z_range(rangeSize / 100 + 1); // Small offset
+    mpz_class offset = rr.get_z_range(rangeSize / 100 + 1);  // Small offset
 
     if (isTame) {
       // Tame starts at End to be ahead of Wild
       mpz_class base = endRange;
       mpz_class myStart = base + offset;
-      startDist = myStart; // This is the absolute scalar value
+      startDist = myStart;  // This is the absolute scalar value
 
       unsigned char scalar[32];
       Utils::mpzToBytes(myStart.get_mpz_t(), scalar);
       ecc.getPubKeyFromPriv(startPoint, scalar);
     } else {
       // Wild
-      startDist = offset; // We track distance ADDED to Target
+      startDist = offset;  // We track distance ADDED to Target
 
       secp256k1_pubkey p = targetPubKey;
       unsigned char scalar[32];
@@ -428,7 +434,7 @@ void Kangaroo::run() {
       unsigned char h = ser.back();
       int idx = h % jumpTableSize;
 
-      const Jump &jump = jumpTable[idx];
+      const Jump& jump = jumpTable[idx];
       ecc.addPoints(currentPoint, jump.point);
       dist += jump.dist;
       totalJumps++;
