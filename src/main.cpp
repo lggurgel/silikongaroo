@@ -71,20 +71,35 @@ int main(int argc, char* argv[]) {
 
     // Monitor thread
     std::thread monitor([&]() {
-      // auto startTime = std::chrono::steady_clock::now();
+      auto startTime = std::chrono::steady_clock::now();
       while (!kangaroo.isFound()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         double duration = kangaroo.getDuration();
         uint64_t jumps = kangaroo.getTotalJumps();
-        double rate = duration > 0 ? jumps / duration : 0;
+        double rate = kangaroo.getOpsPerSecond();
+        double remainingSeconds = kangaroo.getEstimatedSecondsRemaining();
 
-        std::cout << "\rTime: " << (int)duration << "s | Jumps: " << jumps
-                  << " | Rate: " << std::fixed << std::setprecision(2)
-                  << rate / 1000000.0 << " M/jumps/s" << std::flush;
+        std::string timeStr;
+        if (remainingSeconds < 0) {
+          timeStr = "Calculating...";
+        } else if (remainingSeconds > 31536000000.0) {  // > 1000 years
+          timeStr = "> 1000 years";
+        } else if (remainingSeconds > 31536000) {
+          timeStr =
+              std::to_string((int)(remainingSeconds / 31536000)) + " years";
+        } else if (remainingSeconds > 86400) {
+          timeStr = std::to_string((int)(remainingSeconds / 86400)) + " days";
+        } else if (remainingSeconds > 3600) {
+          timeStr = std::to_string((int)(remainingSeconds / 3600)) + " hours";
+        } else if (remainingSeconds > 60) {
+          timeStr = std::to_string((int)(remainingSeconds / 60)) + " minutes";
+        } else {
+          timeStr = std::to_string((int)remainingSeconds) + " seconds";
+        }
 
-        // Check if we should exit? run() will return if found.
-        // But we are in a loop. We need to know if run finished.
-        // isFound is true.
+        std::cout << "\rTime: " << (int)duration << "s | Rate: " << std::fixed
+                  << std::setprecision(2) << rate / 1000000.0
+                  << " M/jumps/s | Est: " << timeStr << "      " << std::flush;
       }
     });
     monitor.detach();  // Simple detach for MVP
